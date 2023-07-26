@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
-  "Version": 1,
-  "VersionName": "",
+  "Version": 0.1,
+  "VersionName": "Alpha",
   "FriendlyName": "Snapshot",
   "Description": "Snapshot Unreal Engine Plugin",
   "Category": "Networking",

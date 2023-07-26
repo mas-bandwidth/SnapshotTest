@@ -6,6 +6,7 @@
 #include "SnapshotSocketServer.h"
 #include "snapshot_server.h"
 #include "snapshot_address.h"
+#include "snapshot_platform.h"
 
 FSnapshotSocketServer::FSnapshotSocketServer(const FString& InSocketDescription, const FName& InSocketProtocol)
     : FSnapshotSocket(ESnapshotSocketType::TYPE_Server, InSocketDescription, InSocketProtocol)
@@ -32,31 +33,15 @@ bool FSnapshotSocketServer::Close()
     {
         snapshot_server_destroy(SnapshotServer);
         SnapshotServer = NULL;
-        ServerAddress = "";
-        PacketQueue.Empty();
-        UE_LOG(LogSnapshot, Display, TEXT("Server socket closed"));
     }
-    return true;
-}
 
-static bool ExtractServerAddressOnly(const FString & ServerAddressWithPort, FString & ServerAddressOnly)
-{
-    int32 LastColon;
-    if (!ServerAddressWithPort.FindLastChar(TEXT(":")[0], LastColon))
+    PacketData PassthroughPacket;
+    while (PacketQueue.Dequeue(PassthroughPacket))
     {
-        return false;
-    }        
+        FMemory::Free(PassthroughPacket.packet_data);
+    }
 
-    if (ServerAddressWithPort[0] == TCHAR('['))
-    {
-        // ipv6 in snapshot form, eg. [::1]:20000
-        ServerAddressOnly = *(ServerAddressWithPort.Mid(1, LastColon - 2)); /* for the brackets */
-    }
-    else
-    {
-        // ipv4 in snapshot form, eg. 127.0.0.1:20000
-        ServerAddressOnly = *(ServerAddressWithPort.Mid(0, LastColon));
-    }
+    UE_LOG(LogSnapshot, Display, TEXT("Server socket closed"));
 
     return true;
 }
@@ -72,21 +57,26 @@ bool FSnapshotSocketServer::Bind(const FInternetAddr& Addr)
 {
     Close();
 
-    UE_LOG(LogSnapshot, Display, TEXT("Bind Server Socket (%s)"), *Addr.ToString(true));
+    FString ServerAddress = Addr.ToString(true);
 
-    FString BindAddress = Addr.ToString(true);
+    FString ServerAddressOverride;
+    if (FParse::Value(FCommandLine::Get(), TEXT("-serveraddress="), ServerAddressOverride))
+    {
+        ServerAddress = ServerAddressOverride;
+    }
 
-    // todo: we really NEED to know the server public address here, whether it is passed in via env var (multiplay style) or not
-    FString ServerAddressWithPort = FString::Printf(TEXT("127.0.0.1:%d"), Addr.GetPort());
+    UE_LOG(LogSnapshot, Display, TEXT("Server address is '%s'"), *ServerAddress);
+
+    // todo: command line override for private key as base64 "-privatekey=<base64>"
 
     struct snapshot_server_config_t server_config;
     snapshot_default_server_config(&server_config);
     server_config.context = this;
-    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.protocol_id = TEST_PROTOCOL_ID;                                                           // todo: get protocol id from somewhere meaningful in the engine, eg. hash of code + content?
     server_config.process_passthrough_callback = ProcessPassthroughPacket;
     memcpy(&server_config.private_key, test_server_private_key, SNAPSHOT_KEY_BYTES);
 
-    SnapshotServer = snapshot_server_create(TCHAR_TO_ANSI(*ServerAddressWithPort), &server_config, snapshot_platform_time());
+    SnapshotServer = snapshot_server_create(TCHAR_TO_ANSI(*ServerAddress), &server_config, snapshot_platform_time());
     if (!SnapshotServer)
     {
         UE_LOG(LogSnapshot, Error, TEXT("Failed to create snapshot server"));
@@ -134,11 +124,7 @@ void FSnapshotSocketServer::ProcessPassthroughPacket(void* context, const snapsh
 
     memcpy(packet_data_copy, packet_data, packet_bytes);
 
-    self->PacketQueue.Enqueue({
-        *client_address,
-        packet_data_copy,
-        packet_bytes,
-        });
+    self->PacketQueue.Enqueue({*client_address, packet_data_copy, packet_bytes});
 }
 
 bool FSnapshotSocketServer::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FInternetAddr& Source, ESocketReceiveFlags::Type Flags)
@@ -207,18 +193,9 @@ bool FSnapshotSocketServer::RecvFrom(uint8* Data, int32 BufferSize, int32& Bytes
 
 void FSnapshotSocketServer::GetAddress(FInternetAddr& OutAddr)
 {
-    if (SnapshotServer)
-    {
-        // Return the address the server socket is listening on
-        bool IsValid = false;
-        OutAddr.SetIp(*ServerAddress, IsValid);
-    }
-    else
-    {
-        // Not bound yet. We don't have any address!
-        bool IsValid = false;
-        OutAddr.SetIp(TEXT("0.0.0.0"), IsValid);
-    }
+    // We *always* bind to 0.0.0.0
+    bool IsValid = false;
+    OutAddr.SetIp(TEXT("0.0.0.0"), IsValid);
 }
 
 int32 FSnapshotSocketServer::GetPortNo()

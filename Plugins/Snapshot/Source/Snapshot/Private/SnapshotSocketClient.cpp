@@ -6,6 +6,8 @@
 #include "SnapshotSocketClient.h"
 #include "snapshot_client.h"
 #include "snapshot_connect_token.h"
+#include "snapshot_platform.h"
+#include "snapshot_crypto.h"
 
 FSnapshotSocketClient::FSnapshotSocketClient(const FString& InSocketDescription, const FName& InSocketProtocol)
     : FSnapshotSocket(ESnapshotSocketType::TYPE_Client, InSocketDescription, InSocketProtocol)
@@ -34,12 +36,20 @@ bool FSnapshotSocketClient::Close()
     {
         snapshot_client_destroy(SnapshotClient);
         SnapshotClient = NULL;
-        ServerAddrAndPort = TEXT("");
-        ServerAddr = TEXT("");
-        ServerPort = 0;
-        PacketQueue.Empty();
-        UE_LOG(LogSnapshot, Display, TEXT("Client socket closed"));
     }
+
+    PacketData PassthroughPacket;
+    while (PacketQueue.Dequeue(PassthroughPacket))
+    {
+        FMemory::Free(PassthroughPacket.packet_data);
+    }
+
+    UE_LOG(LogSnapshot, Display, TEXT("Client socket closed"));
+
+    ServerAddrAndPort = TEXT("");
+    ServerAddr = TEXT("");
+    ServerPort = 0;
+
     return true;
 }
 
@@ -175,10 +185,7 @@ void FSnapshotSocketClient::ProcessPassthroughPacket(void* context, const uint8_
     
     memcpy(packet_data_copy, packet_data, packet_bytes);
 
-    self->PacketQueue.Enqueue({
-        packet_data_copy,
-        packet_bytes,
-        });
+    self->PacketQueue.Enqueue({packet_data_copy, packet_bytes});
 }
 
 bool FSnapshotSocketClient::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FInternetAddr& Source, ESocketReceiveFlags::Type Flags)

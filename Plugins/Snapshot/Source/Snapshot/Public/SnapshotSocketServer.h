@@ -25,8 +25,6 @@ private:
 
     snapshot_server_t* SnapshotServer;
 
-    FString ServerAddress;
-
     bool bUpdatedThisFrame;
 
     struct PacketData {
