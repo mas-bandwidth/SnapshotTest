@@ -7,6 +7,7 @@
 #include "snapshot_server.h"
 #include "snapshot_address.h"
 #include "snapshot_platform.h"
+#include "snapshot_base64.h"
 
 FSnapshotSocketServer::FSnapshotSocketServer(const FString& InSocketDescription, const FName& InSocketProtocol)
     : FSnapshotSocket(ESnapshotSocketType::TYPE_Server, InSocketDescription, InSocketProtocol)
@@ -67,14 +68,27 @@ bool FSnapshotSocketServer::Bind(const FInternetAddr& Addr)
 
     UE_LOG(LogSnapshot, Display, TEXT("Server address is '%s'"), *ServerAddress);
 
-    // todo: command line override for private key as base64 "-privatekey=<base64>"
-
     struct snapshot_server_config_t server_config;
     snapshot_default_server_config(&server_config);
     server_config.context = this;
     server_config.protocol_id = TEST_PROTOCOL_ID;                                                           // todo: get protocol id from somewhere meaningful in the engine, eg. hash of code + content?
     server_config.process_passthrough_callback = ProcessPassthroughPacket;
     memcpy(&server_config.private_key, test_server_private_key, SNAPSHOT_KEY_BYTES);
+
+    FString PrivateKeyOverride;
+    if (FParse::Value(FCommandLine::Get(), TEXT("-privatekey="), PrivateKeyOverride))
+    {
+        uint8_t private_key_override[SNAPSHOT_KEY_BYTES];
+        if (snapshot_base64_decode_data(TCHAR_TO_ANSI(*PrivateKeyOverride), private_key_override, SNAPSHOT_KEY_BYTES) == SNAPSHOT_KEY_BYTES)
+        {
+            UE_LOG(LogSnapshot, Display, TEXT("Found valid private key override on command line"), *PrivateKeyOverride);
+            memcpy(&server_config.private_key, private_key_override, SNAPSHOT_KEY_BYTES);
+        }
+        else
+        {
+            UE_LOG(LogSnapshot, Display, TEXT("Invalid private key override '%s', falling back to test private key"), *PrivateKeyOverride);
+        }
+    }
 
     SnapshotServer = snapshot_server_create(TCHAR_TO_ANSI(*ServerAddress), &server_config, snapshot_platform_time());
     if (!SnapshotServer)
