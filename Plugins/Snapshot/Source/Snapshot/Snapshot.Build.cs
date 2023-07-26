@@ -32,6 +32,8 @@ public class Snapshot : ModuleRules
             }
         );
 
+        PrivateIncludePaths.AddRange(new string[] { "Snapshot/Private/include", "Snapshot/Private/sodium" });
+
         bEnableUndefinedIdentifierWarnings = false;
         
         if (Target.Platform == UnrealTargetPlatform.Mac)
