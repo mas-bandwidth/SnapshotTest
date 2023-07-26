@@ -1,0 +1,228 @@
+/*
+    Snapshot Copyright © 2023 Mas Bandwidth LLC. This source code is licensed under GPL version 3 or any later version.
+    Commercial licensing under different terms is available. Please email licensing@mas-bandwidth.com for details.
+*/
+
+#include "SnapshotSocketServer.h"
+#include "snapshot_server.h"
+#include "snapshot_address.h"
+
+FSnapshotSocketServer::FSnapshotSocketServer(const FString& InSocketDescription, const FName& InSocketProtocol)
+    : FSnapshotSocket(ESnapshotSocketType::TYPE_Server, InSocketDescription, InSocketProtocol)
+{
+    UE_LOG(LogSnapshot, Display, TEXT("Server socket created"));
+    SnapshotServer = NULL;
+    bUpdatedThisFrame = false;
+}
+
+FSnapshotSocketServer::~FSnapshotSocketServer()
+{
+    Close();
+    UE_LOG(LogSnapshot, Display, TEXT("Server socket destroyed"));
+}
+
+void FSnapshotSocketServer::Update()
+{
+    // ...
+}
+
+bool FSnapshotSocketServer::Close()
+{
+    if (SnapshotServer)
+    {
+        snapshot_server_destroy(SnapshotServer);
+        SnapshotServer = NULL;
+        ServerAddress = "";
+        PacketQueue.Empty();
+        UE_LOG(LogSnapshot, Display, TEXT("Server socket closed"));
+    }
+    return true;
+}
+
+static bool ExtractServerAddressOnly(const FString & ServerAddressWithPort, FString & ServerAddressOnly)
+{
+    int32 LastColon;
+    if (!ServerAddressWithPort.FindLastChar(TEXT(":")[0], LastColon))
+    {
+        return false;
+    }        
+
+    if (ServerAddressWithPort[0] == TCHAR('['))
+    {
+        // ipv6 in snapshot form, eg. [::1]:20000
+        ServerAddressOnly = *(ServerAddressWithPort.Mid(1, LastColon - 2)); /* for the brackets */
+    }
+    else
+    {
+        // ipv4 in snapshot form, eg. 127.0.0.1:20000
+        ServerAddressOnly = *(ServerAddressWithPort.Mid(0, LastColon));
+    }
+
+    return true;
+}
+
+#define TEST_PROTOCOL_ID 0x1122334455667788
+
+static uint8_t test_server_private_key[SNAPSHOT_KEY_BYTES] = { 0x60, 0x6a, 0xbe, 0x6e, 0xc9, 0x19, 0x10, 0xea,
+                                                               0x9a, 0x65, 0x62, 0xf6, 0x6f, 0x2b, 0x30, 0xe4,
+                                                               0x43, 0x71, 0xd6, 0x2c, 0xd1, 0x99, 0x27, 0x26,
+                                                               0x6b, 0x3c, 0x60, 0xf4, 0xb7, 0x15, 0xab, 0xa1 };
+
+bool FSnapshotSocketServer::Bind(const FInternetAddr& Addr)
+{
+    Close();
+
+    UE_LOG(LogSnapshot, Display, TEXT("Bind Server Socket (%s)"), *Addr.ToString(true));
+
+    FString BindAddress = Addr.ToString(true);
+
+    // todo: we really NEED to know the server public address here, whether it is passed in via env var (multiplay style) or not
+    FString ServerAddressWithPort = FString::Printf(TEXT("127.0.0.1:%d"), Addr.GetPort());
+
+    struct snapshot_server_config_t server_config;
+    snapshot_default_server_config(&server_config);
+    server_config.context = this;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.process_passthrough_callback = ProcessPassthroughPacket;
+    memcpy(&server_config.private_key, test_server_private_key, SNAPSHOT_KEY_BYTES);
+
+    SnapshotServer = snapshot_server_create(TCHAR_TO_ANSI(*ServerAddressWithPort), &server_config, snapshot_platform_time());
+    if (!SnapshotServer)
+    {
+        UE_LOG(LogSnapshot, Error, TEXT("Failed to create snapshot server"));
+        return false;
+    }
+
+    UE_LOG(LogSnapshot, Display, TEXT("Created snapshot server"));
+
+    return true;
+}
+
+bool FSnapshotSocketServer::SendTo(const uint8* Data, int32 Count, int32& BytesSent, const FInternetAddr& Destination)
+{
+    if (!SnapshotServer)
+        return false;
+    
+    snapshot_address_t dest;
+    if (snapshot_address_parse(&dest, TCHAR_TO_ANSI(*(Destination.ToString(true)))) != SNAPSHOT_OK)
+    {
+        UE_LOG(LogSnapshot, Warning, TEXT("Invalid address passed to FSnapshotSocketServer::SendTo (%s)"), *Destination.ToString(true));
+        return false;
+    }
+
+    int client_index = snapshot_server_find_client_index_by_address(SnapshotServer, &dest);
+    if (client_index < 0)
+    {
+        UE_LOG(LogSnapshot, Warning, TEXT("No connected client with address %s in FSnapshotSocketServer::SendTo"), *Destination.ToString(true));
+        return false;
+    }
+
+    snapshot_server_send_passthrough_packet(SnapshotServer, client_index, Data, Count);
+    
+    BytesSent = Count;
+
+    return true;
+}
+
+void FSnapshotSocketServer::ProcessPassthroughPacket(void* context, const snapshot_address_t* client_address, int client_index, const uint8_t* packet_data, int packet_bytes)
+{
+    // IMPORTANT: This is called from main thread inside snapshot_server_update
+
+    FSnapshotSocketServer* self = (FSnapshotSocketServer*)context;
+
+    uint8_t* packet_data_copy = (uint8_t*)FMemory::Malloc(packet_bytes);
+
+    memcpy(packet_data_copy, packet_data, packet_bytes);
+
+    self->PacketQueue.Enqueue({
+        *client_address,
+        packet_data_copy,
+        packet_bytes,
+        });
+}
+
+bool FSnapshotSocketServer::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FInternetAddr& Source, ESocketReceiveFlags::Type Flags)
+{
+    if (!SnapshotServer)
+        return false;
+
+    if (Flags != ESocketReceiveFlags::None)
+        return false;
+
+    if (!bUpdatedThisFrame)
+    {
+        // make sure we update the server prior to receiving any packets this frame
+        snapshot_server_update(SnapshotServer, snapshot_platform_time());
+        bUpdatedThisFrame = true;
+    }
+
+    PacketData PassthroughPacket;
+    if (!PacketQueue.Dequeue(PassthroughPacket))
+    {
+        // we have finished receiving packets for this frame
+        bUpdatedThisFrame = false;
+        return false;
+    }
+
+    // drop packet if it is too large to copy to the recieve buffer
+    if (PassthroughPacket.packet_bytes > BufferSize)
+    {
+        UE_LOG(LogSnapshot, Error, TEXT("Passthrough packet is too large to receive. Packet is %d bytes, but buffer is only %d bytes."), PassthroughPacket.packet_bytes, BufferSize);
+        FMemory::Free(PassthroughPacket.packet_data);
+        return false;
+    }
+    
+    // Copy data from packet to buffer.
+    memcpy(Data, PassthroughPacket.packet_data, PassthroughPacket.packet_bytes);
+    BytesRead = PassthroughPacket.packet_bytes;
+    FMemory::Free(PassthroughPacket.packet_data);
+
+    // Convert snapshot address to string.
+    char snapshot_address_buffer[SNAPSHOT_MAX_ADDRESS_STRING_LENGTH];
+    snapshot_address_to_string(&PassthroughPacket.from, snapshot_address_buffer);
+    uint8_t address_type = PassthroughPacket.from.type;
+    uint16_t address_port = PassthroughPacket.from.port;
+
+    // Now manually parse the from address string, since UE does not support parsing the address and port combined.
+    FString SnapshotAddressAsUnrealString = FString(ANSI_TO_TCHAR(snapshot_address_buffer));
+    int32 LastColon;
+    if (!SnapshotAddressAsUnrealString.FindLastChar(TEXT(":")[0], LastColon))
+        return false;
+    bool bIsValid = false;
+    switch (address_type)
+    {
+    case SNAPSHOT_ADDRESS_NONE:
+        return false;
+    case SNAPSHOT_ADDRESS_IPV4:
+        Source.SetIp(*(SnapshotAddressAsUnrealString.Mid(0, LastColon)), bIsValid);
+        Source.SetPort(address_port);
+        break;
+    case SNAPSHOT_ADDRESS_IPV6:
+        Source.SetIp(*(SnapshotAddressAsUnrealString.Mid(1, LastColon - 2) /* for the brackets */), bIsValid);
+        Source.SetPort(address_port);
+        break;
+    }
+    return bIsValid;
+}
+
+void FSnapshotSocketServer::GetAddress(FInternetAddr& OutAddr)
+{
+    if (SnapshotServer)
+    {
+        // Return the address the server socket is listening on
+        bool IsValid = false;
+        OutAddr.SetIp(*ServerAddress, IsValid);
+    }
+    else
+    {
+        // Not bound yet. We don't have any address!
+        bool IsValid = false;
+        OutAddr.SetIp(TEXT("0.0.0.0"), IsValid);
+    }
+}
+
+int32 FSnapshotSocketServer::GetPortNo()
+{
+    // Return the port number that the server socket is listening on
+    return SnapshotServer ? snapshot_server_port(SnapshotServer) : 0;
+}

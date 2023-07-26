@@ -1,0 +1,38 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "",
+  "FriendlyName": "Snapshot",
+  "Description": "Snapshot Unreal Engine Plugin",
+  "Category": "Networking",
+  "CreatedBy": "Mas Bandwidth LLC",
+  "CreatedByURL": "https://mas-bandwidth.com",
+  "DocsURL": "",
+  "MarketplaceURL": "",
+  "SupportURL": "",
+  "EnabledByDefault": true,
+  "CanContainContent": true,
+  "IsBetaVersion": false,
+  "Installed": false,
+  "Modules": [
+    {
+      "Name": "Snapshot",
+      "Type": "Runtime",
+      "LoadingPhase": "Default",
+      "WhitelistPlatforms": [
+        "Win64",
+        "Linux"
+      ]
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "OnlineSubsystem",
+      "Enabled": true
+    },
+    {
+      "Name": "OnlineSubsystemUtils",
+      "Enabled": true
+    }
+  ]
+}

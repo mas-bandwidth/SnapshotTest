@@ -1,0 +1,22 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{3BE72AFA-4B76-8463-0B5D-A8B78FE78BA9}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "SnapshotTest",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		}
+	]
+}
