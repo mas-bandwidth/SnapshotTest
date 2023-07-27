@@ -69,8 +69,8 @@ bool FSnapshotSocketClient::Bind(const FInternetAddr& Addr)
     struct snapshot_client_config_t client_config;
     snapshot_default_client_config(&client_config);
     client_config.context = this;
-
     client_config.process_passthrough_callback = ProcessPassthroughPacket;
+    client_config.state_change_callback = ClientStateChanged;
 
     SnapshotClient = snapshot_client_create(BindAddress, &client_config, snapshot_platform_time());
     if (SnapshotClient == NULL)
@@ -181,19 +181,6 @@ bool FSnapshotSocketClient::SendTo(const uint8* Data, int32 Count, int32& BytesS
     return true;
 }
 
-void FSnapshotSocketClient::ProcessPassthroughPacket(void* context, const uint8_t* packet_data, int packet_bytes)
-{
-    // this callback is pumped on main thread from inside snapshot_client_update
-
-    FSnapshotSocketClient* self = (FSnapshotSocketClient*)context;
-
-    uint8_t* packet_data_copy = (uint8_t*)FMemory::Malloc(packet_bytes);
-
-    memcpy(packet_data_copy, packet_data, packet_bytes);
-
-    self->PacketQueue.Enqueue({ packet_data_copy, packet_bytes });
-}
-
 bool FSnapshotSocketClient::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FInternetAddr& Source, ESocketReceiveFlags::Type Flags)
 {
     if (!SnapshotClient)
@@ -253,4 +240,27 @@ int32 FSnapshotSocketClient::GetPortNo()
 {
     // Return the actual port number the socket is bound to. This may be a system assigned port if the bind port was 0.
     return SnapshotClient ? snapshot_client_port(SnapshotClient) : 0;
+}
+
+void FSnapshotSocketClient::ProcessPassthroughPacket(void* context, const uint8_t* packet_data, int packet_bytes)
+{
+    // this callback is pumped on main thread from inside snapshot_client_update
+
+    FSnapshotSocketClient* self = (FSnapshotSocketClient*)context;
+
+    uint8_t* packet_data_copy = (uint8_t*)FMemory::Malloc(packet_bytes);
+
+    memcpy(packet_data_copy, packet_data, packet_bytes);
+
+    self->PacketQueue.Enqueue({ packet_data_copy, packet_bytes });
+}
+
+void FSnapshotSocketClient::ClientStateChanged(void* context, int previous, int current)
+{
+    snapshot_printf(SNAPSHOT_LOG_LEVEL_INFO, "Client state changed from %s -> %s", snapshot_client_state_name(previous), snapshot_client_state_name(current));
+
+    if (previous > SNAPSHOT_CLIENT_STATE_DISCONNECTED && current <= SNAPSHOT_CLIENT_STATE_DISCONNECTED)
+    {
+        // todo: the client disconnected for some reason. we need to notify the game engine that the client connection is no longer valid
+    }
 }

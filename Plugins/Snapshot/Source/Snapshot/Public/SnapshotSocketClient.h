@@ -109,7 +109,13 @@ public:
      */
     virtual int32 GetPortNo() override;
 
+protected:
+
     // Callback for passthrough packets sent from the server
 
     static void ProcessPassthroughPacket(void* context, const uint8_t* packet_data, int packet_bytes);
+
+    // Callback when client state changes
+
+    static void ClientStateChanged(void* context, int previous, int current);
 };
