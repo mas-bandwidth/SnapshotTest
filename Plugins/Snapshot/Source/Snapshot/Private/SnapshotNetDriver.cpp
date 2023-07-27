@@ -12,6 +12,8 @@
 #include "SnapshotSocketSubsystem.h"
 #include "SnapshotSocketServer.h"
 #include "SnapshotSocketClient.h"
+#include "snapshot.h"
+#include "snapshot_base64.h"
 
 bool USnapshotNetDriver::IsAvailable() const
 {
@@ -87,7 +89,7 @@ bool USnapshotNetDriver::InitConnect(FNetworkNotify* InNotify, const FURL& Conne
         UE_LOG(LogSnapshot, Error, TEXT("Could not find snapshot socket subsystem"));
         return false;
     }
-    
+
     FSocket* NewSocket = SnapshotSockets->CreateSocket(FName(TEXT("SnapshotSocketClient")), TEXT("Unreal client (Snapshot)"), FName(TEXT("Snapshot")));
     if (!NewSocket)
     {
@@ -101,6 +103,26 @@ bool USnapshotNetDriver::InitConnect(FNetworkNotify* InNotify, const FURL& Conne
     ServerSocket = NULL;
 
     return Super::InitConnect(InNotify, ConnectURL, Error);
+
+    /*
+    // IMPORTANT: Must be done *after* Super::InitConnect because client socket bind happens there
+    if (ConnectURL.Host.StartsWith("snapshot."))
+    {
+        uint8_t connect_token[SNAPSHOT_CONNECT_TOKEN_BYTES];
+        if (snapshot_base64_decode_data(TCHAR_TO_ANSI(*ConnectURL.Host + 9), connect_token, SNAPSHOT_CONNECT_TOKEN_BYTES) == SNAPSHOT_CONNECT_TOKEN_BYTES)
+        {
+            ClientSocket->SnapshotSecureConnect(connect_token);
+        }
+        else
+        {
+            UE_LOG(LogSnapshot, Display, TEXT("Invalid snapshot connect token: '%s'"), *ConnectURL.Host);
+        }
+    }
+    else
+    {
+        ClientSocket->SnapshotInsecureConnect(ConnectURL.Host, ConnectURL.Port);
+    }
+    */
 }
 
 bool USnapshotNetDriver::InitListen(FNetworkNotify* InNotify, FURL& ListenURL, bool bReuseAddressAndPort, FString& Error)

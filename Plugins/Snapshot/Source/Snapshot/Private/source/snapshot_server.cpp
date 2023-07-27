@@ -24,11 +24,8 @@
 void snapshot_default_server_config( struct snapshot_server_config_t * config )
 {
     snapshot_assert( config );
-    config->context = NULL;
+    memset( config, 0, sizeof(snapshot_server_config_t) );
     config->max_clients = SNAPSHOT_MAX_CLIENTS;
-    config->connect_disconnect_callback = NULL;
-    config->send_loopback_packet_callback = NULL;
-    config->process_passthrough_callback = NULL;
 #if SNAPSHOT_DEVELOPMENT
     config->network_simulator = NULL;
 #endif // #if SNAPSHOT_DEVELOPMENT
