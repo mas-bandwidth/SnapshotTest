@@ -92,7 +92,13 @@ public:
      */
     virtual int32 GetPortNo() override;
 
+protected:
+
     // Callback for passthrough packets sent from clients to the server
 
     static void ProcessPassthroughPacket(void* context, const snapshot_address_t* client_address, int client_index, const uint8_t* packet_data, int packet_bytes);
+
+    // Callback when clients connect and disconnect
+
+    static void ClientConnectDisconnect(void* context, int client_index, int connect);
 };

@@ -73,6 +73,7 @@ bool FSnapshotSocketServer::Bind(const FInternetAddr& Addr)
     server_config.context = this;
     server_config.protocol_id = TEST_PROTOCOL_ID;                                                           // todo: get protocol id from somewhere meaningful in the engine, eg. hash of code + content?
     server_config.process_passthrough_callback = ProcessPassthroughPacket;
+    server_config.connect_disconnect_callback = ClientConnectDisconnect;
     memcpy(&server_config.private_key, test_server_private_key, SNAPSHOT_KEY_BYTES);
 
     FString PrivateKeyOverride;
@@ -126,19 +127,6 @@ bool FSnapshotSocketServer::SendTo(const uint8* Data, int32 Count, int32& BytesS
     BytesSent = Count;
 
     return true;
-}
-
-void FSnapshotSocketServer::ProcessPassthroughPacket(void* context, const snapshot_address_t* client_address, int client_index, const uint8_t* packet_data, int packet_bytes)
-{
-    // IMPORTANT: This is called from main thread inside snapshot_server_update
-
-    FSnapshotSocketServer* self = (FSnapshotSocketServer*)context;
-
-    uint8_t* packet_data_copy = (uint8_t*)FMemory::Malloc(packet_bytes);
-
-    memcpy(packet_data_copy, packet_data, packet_bytes);
-
-    self->PacketQueue.Enqueue({*client_address, packet_data_copy, packet_bytes});
 }
 
 bool FSnapshotSocketServer::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FInternetAddr& Source, ESocketReceiveFlags::Type Flags)
@@ -198,4 +186,44 @@ int32 FSnapshotSocketServer::GetPortNo()
 {
     // Return the port number that the server socket is listening on
     return SnapshotServer ? snapshot_server_port(SnapshotServer) : 0;
+}
+
+void FSnapshotSocketServer::ProcessPassthroughPacket(void* context, const snapshot_address_t* client_address, int client_index, const uint8_t* packet_data, int packet_bytes)
+{
+    // IMPORTANT: This is called from main thread inside snapshot_server_update
+
+    FSnapshotSocketServer* self = (FSnapshotSocketServer*)context;
+
+    uint8_t* packet_data_copy = (uint8_t*)FMemory::Malloc(packet_bytes);
+
+    memcpy(packet_data_copy, packet_data, packet_bytes);
+
+    self->PacketQueue.Enqueue({ *client_address, packet_data_copy, packet_bytes });
+}
+
+void FSnapshotSocketServer::ClientConnectDisconnect(void* context, int client_index, int connect)
+{
+    // Called when clients connect and disconnect. All data for the client is still valid on the server in both cases (called *after* client connect, and *just before* client disconnect)
+
+    FSnapshotSocketServer* self = (FSnapshotSocketServer*)context;
+
+    const snapshot_address_t * client_address = snapshot_server_client_address(self->SnapshotServer, client_index);
+
+    char client_address_string[SNAPSHOT_MAX_ADDRESS_STRING_LENGTH];
+    snapshot_address_to_string(client_address, client_address_string);
+    
+    uint64_t client_id = snapshot_server_client_id(self->SnapshotServer, client_index);
+
+    if (connect)
+    {
+        snapshot_printf(SNAPSHOT_LOG_LEVEL_INFO, "Server sees client %s connect in slot %d with id [%" PRIx64 "]", client_address_string, client_index, client_id);
+
+        // todo: you probably want to do client setup stuff here
+    }
+    else
+    {
+        snapshot_printf(SNAPSHOT_LOG_LEVEL_INFO, "Server sees client %s disconnect from slot %d with id [%" PRIx64 "]", client_address_string, client_index, client_id);
+
+        // todo: you probably want to do client teardown stuff here
+    }
 }

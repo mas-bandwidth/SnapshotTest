@@ -150,6 +150,8 @@ void FSnapshotSocketClient::SnapshotInsecureConnect(const FString& Host, int32 P
 
     uint8_t connect_token[SNAPSHOT_CONNECT_TOKEN_BYTES];
 
+    // todo: get client protocol id from somewhere meaningful, for example hash of code + data
+
     if (snapshot_generate_connect_token(1, &server_address, TEST_CONNECT_TOKEN_EXPIRY, TEST_CONNECT_TOKEN_TIMEOUT, client_id, TEST_PROTOCOL_ID, test_client_private_key, user_data, connect_token) != SNAPSHOT_OK)
     {
         snapshot_printf(SNAPSHOT_LOG_LEVEL_ERROR, "failed to generate connect token");
