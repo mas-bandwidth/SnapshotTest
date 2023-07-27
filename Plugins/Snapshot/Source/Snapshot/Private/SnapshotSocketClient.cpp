@@ -256,9 +256,6 @@ bool FSnapshotSocketClient::RecvFrom(uint8* Data, int32 BufferSize, int32& Bytes
         return false;
     }
 
-    // todo
-    snapshot_printf(SNAPSHOT_LOG_LEVEL_DEBUG, "client received packet from server");
-
     // drop packet if it is too large to copy to the recieve buffer
     if (PassthroughPacket.packet_bytes > BufferSize)
     {
