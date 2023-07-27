@@ -25,8 +25,16 @@ class USnapshotNetDriver : public UIpNetDriver
     virtual void Shutdown() override;
     virtual bool IsNetResourceValid() override;
 
-public:
+    bool IsClient() const;
+    bool IsServer() const;
 
-    class FSnapshotSocketClient* ClientSocket;
-    class FSnapshotSocketServer* ServerSocket;
+protected:
+
+    class FSnapshotSocketClient* GetClientSocket();
+    class FSnapshotSocketServer* GetServerSocket();
+
+private:
+
+    bool bIsClient;
+    bool bIsServer;
 };

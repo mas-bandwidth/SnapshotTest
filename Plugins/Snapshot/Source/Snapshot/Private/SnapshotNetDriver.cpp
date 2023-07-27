@@ -90,19 +90,23 @@ bool USnapshotNetDriver::InitConnect(FNetworkNotify* InNotify, const FURL& Conne
         return false;
     }
 
-    FSocket* NewSocket = SnapshotSockets->CreateSocket(FName(TEXT("SnapshotSocketClient")), TEXT("Unreal client (Snapshot)"), FName(TEXT("Snapshot")));
-    if (!NewSocket)
-    {
-        UE_LOG(LogSnapshot, Error, TEXT("Could not create snapshot client socket"));
-        return false;
-    }
+    FUniqueSocket NewSocket = SnapshotSockets->CreateUniqueSocket(FName(TEXT("SnapshotSocketClient")), TEXT("Unreal client (Snapshot)"), FName(TEXT("Snapshot")));
 
-    SetSocketAndLocalAddress(NewSocket);
+    TSharedPtr<FSocket> SharedSocket(NewSocket.Release(), FSocketDeleter(NewSocket.GetDeleter()));
 
-    ClientSocket = (FSnapshotSocketClient*)NewSocket;
-    ServerSocket = NULL;
+    SetSocketAndLocalAddress(SharedSocket);
 
     bool result = Super::InitConnect(InNotify, ConnectURL, Error);
+
+    bIsClient = true;
+    bIsServer = false;
+
+    FSnapshotSocketClient* ClientSocket = GetClientSocket();
+    if (ClientSocket == NULL)
+    {
+        UE_LOG(LogSnapshot, Error, TEXT("Client socket is NULL"));
+        return false;
+    }
 
     // IMPORTANT: Must be done *after* Super::InitConnect because client socket bind happens there
     if (ConnectURL.Host.StartsWith("snapshot."))
@@ -136,27 +140,30 @@ bool USnapshotNetDriver::InitListen(FNetworkNotify* InNotify, FURL& ListenURL, b
         return false;
     }
 
-    FSocket* NewSocket = SnapshotSockets->CreateSocket(FName(TEXT("SnapshotSocketServer")), TEXT("Unreal server (Snapshot)"), FName(TEXT("Snapshot")));
-    if (!NewSocket)
+    FUniqueSocket NewSocket = SnapshotSockets->CreateUniqueSocket(FName(TEXT("SnapshotSocketServer")), TEXT("Unreal server (Snapshot)"), FName(TEXT("Snapshot")));
+
+    TSharedPtr<FSocket> SharedSocket(NewSocket.Release(), FSocketDeleter(NewSocket.GetDeleter()));
+
+    SetSocketAndLocalAddress(SharedSocket);
+
+    bIsClient = false;
+    bIsServer = true;
+
+    FSnapshotSocketServer* ServerSocket = GetServerSocket();
+    if (ServerSocket == NULL)
     {
-        UE_LOG(LogSnapshot, Error, TEXT("Could not create snapshot server socket"));
+        UE_LOG(LogSnapshot, Error, TEXT("Server socket is NULL"));
         return false;
     }
 
-    SetSocketAndLocalAddress(NewSocket);
+    bool result = Super::InitListen(InNotify, ListenURL, bReuseAddressAndPort, Error);
 
-    ServerSocket = (FSnapshotSocketServer*)NewSocket;
-    ClientSocket = NULL;
-
-    return Super::InitListen(InNotify, ListenURL, bReuseAddressAndPort, Error);
+    return result;
 }
 
 void USnapshotNetDriver::Shutdown()
 {
     UE_LOG(LogSnapshot, Display, TEXT("FSnapshotNetDriver::Shutdown"));
-
-    ClientSocket = NULL;
-    ServerSocket = NULL;
 
     Super::Shutdown();
 }
@@ -165,3 +172,24 @@ bool USnapshotNetDriver::IsNetResourceValid()
 {
     return true;
 }
+
+bool USnapshotNetDriver::IsClient() const
+{
+    return bIsClient;
+}
+
+bool USnapshotNetDriver::IsServer() const
+{
+    return bIsServer;
+}
+
+FSnapshotSocketClient* USnapshotNetDriver::GetClientSocket()
+{
+    return IsClient() ? (FSnapshotSocketClient*)GetSocket(): NULL;
+}
+
+FSnapshotSocketServer* USnapshotNetDriver::GetServerSocket()
+{
+    return IsServer() ? (FSnapshotSocketServer*)GetSocket() : NULL;
+}
+
