@@ -178,30 +178,12 @@ bool FSnapshotSocketServer::RecvFrom(uint8* Data, int32 BufferSize, int32& Bytes
     FMemory::Free(PassthroughPacket.packet_data);
 
     // Convert snapshot address to string.
-    char snapshot_address_buffer[SNAPSHOT_MAX_ADDRESS_STRING_LENGTH];
-    snapshot_address_to_string(&PassthroughPacket.from, snapshot_address_buffer);
-    uint8_t address_type = PassthroughPacket.from.type;
-    uint16_t address_port = PassthroughPacket.from.port;
-
-    // Now manually parse the from address string, since UE does not support parsing the address and port combined.
-    FString SnapshotAddressAsUnrealString = FString(ANSI_TO_TCHAR(snapshot_address_buffer));
-    int32 LastColon;
-    if (!SnapshotAddressAsUnrealString.FindLastChar(TEXT(":")[0], LastColon))
-        return false;
-    bool bIsValid = false;
-    switch (address_type)
-    {
-    case SNAPSHOT_ADDRESS_NONE:
-        return false;
-    case SNAPSHOT_ADDRESS_IPV4:
-        Source.SetIp(*(SnapshotAddressAsUnrealString.Mid(0, LastColon)), bIsValid);
-        Source.SetPort(address_port);
-        break;
-    case SNAPSHOT_ADDRESS_IPV6:
-        Source.SetIp(*(SnapshotAddressAsUnrealString.Mid(1, LastColon - 2) /* for the brackets */), bIsValid);
-        Source.SetPort(address_port);
-        break;
-    }
+    char snapshot_address_string[SNAPSHOT_MAX_ADDRESS_STRING_LENGTH];
+    snapshot_address_to_string(&PassthroughPacket.from, snapshot_address_string);
+    FString UnrealAddressString = FString(ANSI_TO_TCHAR(snapshot_address_string));
+    bool bIsValid;
+    Source.SetIp(*UnrealAddressString, bIsValid);
+    Source.SetPort(PassthroughPacket.from.port);
     return bIsValid;
 }
 
