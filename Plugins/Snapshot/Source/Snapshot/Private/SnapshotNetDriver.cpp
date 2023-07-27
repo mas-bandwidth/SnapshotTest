@@ -102,9 +102,8 @@ bool USnapshotNetDriver::InitConnect(FNetworkNotify* InNotify, const FURL& Conne
     ClientSocket = (FSnapshotSocketClient*)NewSocket;
     ServerSocket = NULL;
 
-    return Super::InitConnect(InNotify, ConnectURL, Error);
+    bool result = Super::InitConnect(InNotify, ConnectURL, Error);
 
-    /*
     // IMPORTANT: Must be done *after* Super::InitConnect because client socket bind happens there
     if (ConnectURL.Host.StartsWith("snapshot."))
     {
@@ -122,7 +121,8 @@ bool USnapshotNetDriver::InitConnect(FNetworkNotify* InNotify, const FURL& Conne
     {
         ClientSocket->SnapshotInsecureConnect(ConnectURL.Host, ConnectURL.Port);
     }
-    */
+
+    return result;
 }
 
 bool USnapshotNetDriver::InitListen(FNetworkNotify* InNotify, FURL& ListenURL, bool bReuseAddressAndPort, FString& Error)
